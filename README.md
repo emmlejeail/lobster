@@ -1,5 +1,7 @@
 # Lobster — Personal AI Assistant
 
+![Lobster](lobster.jpg)
+
 A macOS daemon that runs a personal AI assistant over Telegram, powered by Claude. It manages your todos, work log, calendar, and long-term memory.
 
 ---
