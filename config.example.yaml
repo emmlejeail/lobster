@@ -1,0 +1,16 @@
+# Lobster Personal AI Assistant — Configuration
+# Copy this file to config.yaml and fill in your values.
+# Secrets (API keys) go in .env — see .env.example if present.
+
+telegram_chat_id: null  # Set automatically on first /start, or enter manually
+
+# Path to the knowledge folder
+brain_path: "~/lobster-brain"
+
+# Scheduled job times (24h HH:MM, local time)
+morning_briefing_time: "09:00"
+evening_checkin_time: "17:30"
+
+# LLM model
+model: "claude-sonnet-4-6"
+max_tokens: 4096

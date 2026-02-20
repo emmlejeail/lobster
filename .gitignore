@@ -1,0 +1,19 @@
+# Secrets
+.env
+config.yaml
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+
+# launchd plist (contains local paths, not useful to track)
+*.plist
+
+.claude/
