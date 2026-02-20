@@ -19,6 +19,8 @@ from handlers.onboarding import get_onboarding_handler
 
 logger = logging.getLogger(__name__)
 
+_history: dict[int, list[dict]] = {}
+
 
 def build_application(cfg: dict) -> Application:
     """Create and configure the Telegram Application."""
@@ -30,6 +32,7 @@ def build_application(cfg: dict) -> Application:
     app.add_handler(CommandHandler("todos", _cmd_todos))
     app.add_handler(CommandHandler("log", _cmd_log))
     app.add_handler(CommandHandler("help", _cmd_help))
+    app.add_handler(CommandHandler("clear", _cmd_clear))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _on_message))
 
     return app
@@ -61,9 +64,15 @@ async def _cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Commands:\n"
         "  /todos — list todos\n"
         "  /log   — today's work log\n"
+        "  /clear — clear conversation history\n"
         "  /help  — this message",
         parse_mode="Markdown",
     )
+
+
+async def _cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    _history.pop(update.effective_chat.id, None)
+    await update.message.reply_text("Conversation history cleared.")
 
 
 # ── Free-text message handler ─────────────────────────────────────────────────
@@ -86,8 +95,12 @@ async def _on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         chat_id=update.effective_chat.id, action="typing"
     )
 
+    chat_id = update.effective_chat.id
+    history = _history.get(chat_id, [])
+
     try:
-        reply = await run_agent(user_text, cfg)
+        reply, updated_history = await run_agent(user_text, cfg, history)
+        _history[chat_id] = updated_history
     except Exception as exc:
         logger.exception("Agent error for message: %s", user_text)
         reply = f"Sorry, something went wrong: {exc}"

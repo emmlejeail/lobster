@@ -119,7 +119,8 @@ async def run_agent(
     user_message: str,
     cfg: dict,
     conversation_history: list[dict] | None = None,
-) -> str:
+    max_history: int = 10,
+) -> tuple[str, list[dict]]:
     """
     Process a user message through the LLM agent with tool use.
 
@@ -127,9 +128,10 @@ async def run_agent(
         user_message: The incoming message text.
         cfg: Loaded config dict.
         conversation_history: Optional prior turns (list of Anthropic message dicts).
+        max_history: Maximum number of messages to retain in history.
 
     Returns:
-        The assistant's final text response.
+        Tuple of (assistant's final text response, updated message history).
     """
     client = anthropic.Anthropic(api_key=cfg["anthropic_api_key"])
     brain_path = cfg["brain_path"]
@@ -157,8 +159,14 @@ async def run_agent(
         text_blocks = [b for b in response.content if b.type == "text"]
 
         if response.stop_reason == "end_turn" or not tool_calls:
-            # No more tool calls — return final text
-            return "\n".join(b.text for b in text_blocks).strip() or "(no response)"
+            # No more tool calls — append final assistant turn and trim history
+            messages.append({"role": "assistant", "content": response.content})
+            if len(messages) > max_history:
+                messages = messages[-max_history:]
+                while messages and messages[0]["role"] != "user":
+                    messages = messages[1:]
+            text_reply = "\n".join(b.text for b in text_blocks).strip() or "(no response)"
+            return text_reply, messages
 
         # Execute all tool calls
         tool_results = []

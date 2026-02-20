@@ -79,6 +79,7 @@ Open Telegram and send `/start` to your bot. Lobster will walk you through a sho
 | `/start` | Onboarding (first run) or greeting |
 | `/todos` | Show current todo list |
 | `/log` | Show today's work log |
+| `/clear` | Clear conversation history |
 | `/help` | Show help message |
 
 Everything else is free-text — just talk to Lobster in plain English.
