@@ -163,8 +163,23 @@ async def run_agent(
             messages.append({"role": "assistant", "content": response.content})
             if len(messages) > max_history:
                 messages = messages[-max_history:]
-                while messages and messages[0]["role"] != "user":
-                    messages = messages[1:]
+                # Ensure history starts at a plain user text message.
+                # A tool_result user message is invalid without its preceding
+                # tool_use assistant message, so skip any such orphaned pairs.
+                while messages:
+                    msg = messages[0]
+                    if msg["role"] == "assistant":
+                        messages = messages[1:]
+                    elif (
+                        msg["role"] == "user"
+                        and isinstance(msg["content"], list)
+                        and msg["content"]
+                        and isinstance(msg["content"][0], dict)
+                        and msg["content"][0].get("type") == "tool_result"
+                    ):
+                        messages = messages[1:]
+                    else:
+                        break
             text_reply = "\n".join(b.text for b in text_blocks).strip() or "(no response)"
             return text_reply, messages
 
