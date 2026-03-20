@@ -37,12 +37,14 @@ async def main() -> None:
     # Build Telegram application
     tg_app = build_application(cfg)
 
+    # Inject bot early so load_recurring_reminders can use it
+    cfg["_bot"] = tg_app.bot
+
     # Build scheduler
     scheduler = build_scheduler(cfg)
 
-    # Inject runtime objects so agent tools can access them
+    # Inject remaining runtime objects
     cfg["_scheduler"] = scheduler
-    cfg["_bot"] = tg_app.bot
 
     # Graceful shutdown
     loop = asyncio.get_running_loop()

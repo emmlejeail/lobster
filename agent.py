@@ -9,7 +9,7 @@ import anthropic
 from handlers.file_manager import append_worklog, update_memory
 from handlers.todo_manager import add_todo, complete_todo, list_todos, remove_todo
 from handlers.calendar_reader import get_calendar_events
-from handlers.reminder_manager import set_reminder
+from handlers.reminder_manager import set_reminder, set_recurring_reminder, cancel_reminder, list_reminders
 from prompts.system_prompt import build_system_prompt
 
 logger = logging.getLogger(__name__)
@@ -103,6 +103,54 @@ TOOLS: list[dict] = [
             "required": ["text", "remind_at"],
         },
     },
+    {
+        "name": "set_recurring_reminder",
+        "description": "Schedule a recurring Telegram reminder. Persists across daemon restarts.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "The reminder message to send."},
+                "time": {"type": "string", "description": "Time in HH:MM format, e.g. '09:30'."},
+                "recurrence": {
+                    "type": "string",
+                    "description": (
+                        "Recurrence pattern. Options: "
+                        "'daily' (every day), "
+                        "'weekdays' (Mon–Fri), "
+                        "'weekly:<day>' (e.g. 'weekly:monday'), "
+                        "'biweekly:<day>' (every 2 weeks, e.g. 'biweekly:friday'), "
+                        "'interval:<N>d' (every N days, e.g. 'interval:3d'), "
+                        "'interval:<N>w' (every N weeks, e.g. 'interval:2w')."
+                    ),
+                },
+                "anchor_date": {
+                    "type": "string",
+                    "description": (
+                        "Optional start date in YYYY-MM-DD format. Sets when the first occurrence fires. "
+                        "Use for interval/biweekly to pin the cadence to a specific date. "
+                        "If omitted, starts as soon as possible."
+                    ),
+                },
+            },
+            "required": ["text", "time", "recurrence"],
+        },
+    },
+    {
+        "name": "cancel_reminder",
+        "description": "Cancel a recurring reminder by its job ID. Use list_reminders to find the ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string", "description": "The job ID of the reminder to cancel (from list_reminders)."},
+            },
+            "required": ["job_id"],
+        },
+    },
+    {
+        "name": "list_reminders",
+        "description": "List all active recurring reminders with their IDs, schedules, and messages.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
 ]
 
 
@@ -126,6 +174,12 @@ def _dispatch_tool(name: str, tool_input: dict[str, Any], cfg: dict) -> str:
         return get_calendar_events(tool_input.get("days_ahead", 0))
     if name == "set_reminder":
         return set_reminder(cfg, tool_input["text"], tool_input["remind_at"])
+    if name == "set_recurring_reminder":
+        return set_recurring_reminder(cfg, tool_input["text"], tool_input["time"], tool_input["recurrence"], tool_input.get("anchor_date"))
+    if name == "cancel_reminder":
+        return cancel_reminder(cfg, tool_input["job_id"])
+    if name == "list_reminders":
+        return list_reminders(cfg)
     return f"Unknown tool: {name}"
 
 
