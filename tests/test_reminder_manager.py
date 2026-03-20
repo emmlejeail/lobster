@@ -78,6 +78,33 @@ def test_build_trigger_invalid():
         _build_trigger("09:00", "monthly")
 
 
+def test_build_trigger_interval_with_anchor():
+    anchor = datetime(2026, 4, 7)
+    t = _build_trigger("10:00", "interval:2w", anchor_date=anchor)
+    assert isinstance(t, IntervalTrigger)
+    assert t.start_date is not None
+    assert t.start_date.date() == anchor.date()
+
+
+def test_build_trigger_biweekly_with_anchor():
+    anchor = datetime(2026, 4, 7)  # a Tuesday
+    t = _build_trigger("10:00", "biweekly:tuesday", anchor_date=anchor)
+    assert isinstance(t, IntervalTrigger)
+    assert t.start_date.year == 2026
+    assert t.start_date.month == 4
+    assert t.start_date.day == 7
+    assert t.start_date.hour == 10
+    assert t.start_date.minute == 0
+
+
+def test_build_trigger_daily_with_anchor():
+    anchor = datetime(2026, 4, 1)
+    t = _build_trigger("09:00", "daily", anchor_date=anchor)
+    assert isinstance(t, CronTrigger)
+    assert t.start_date is not None
+    assert t.start_date.date() == anchor.date()
+
+
 # ── _load_jobs / _save_jobs ────────────────────────────────────────────────────
 
 def test_load_jobs_missing_file(tmp_path):
@@ -172,6 +199,27 @@ def test_set_recurring_reminder_job_id_in_result(tmp_path):
     assert "recurring_" in result
 
 
+def test_set_recurring_reminder_invalid_anchor(tmp_path):
+    cfg = _make_cfg(tmp_path)
+    result = set_recurring_reminder(cfg, "Newsletter", "10:00", "interval:2w", anchor_date="not-a-date")
+    assert "Invalid anchor_date format" in result
+
+
+def test_set_recurring_reminder_anchor_persisted(tmp_path):
+    cfg = _make_cfg(tmp_path)
+    set_recurring_reminder(cfg, "Newsletter", "10:00", "interval:2w", anchor_date="2026-04-07")
+    jobs = _load_jobs(str(tmp_path))
+    assert len(jobs) == 1
+    assert jobs[0]["anchor_date"] == "2026-04-07"
+
+
+def test_set_recurring_reminder_no_anchor_persisted_as_none(tmp_path):
+    cfg = _make_cfg(tmp_path)
+    set_recurring_reminder(cfg, "Stand-up", "10:00", "weekdays")
+    jobs = _load_jobs(str(tmp_path))
+    assert jobs[0]["anchor_date"] is None
+
+
 # ── cancel_reminder ────────────────────────────────────────────────────────────
 
 def test_cancel_reminder_existing(tmp_path):
@@ -238,6 +286,26 @@ def test_load_recurring_reminders_restores_jobs(tmp_path):
     call_kwargs = [c.kwargs for c in scheduler.add_job.call_args_list]
     ids = {kw["id"] for kw in call_kwargs}
     assert ids == {"recurring_abc", "recurring_def"}
+
+
+def test_load_recurring_reminders_passes_anchor(tmp_path):
+    jobs = [
+        {"job_id": "recurring_abc", "text": "Newsletter", "time": "10:00", "recurrence": "interval:2w", "anchor_date": "2026-04-07"},
+    ]
+    _save_jobs(str(tmp_path), jobs)
+
+    cfg = _make_cfg(tmp_path)
+    scheduler = MagicMock()
+    load_recurring_reminders(cfg, scheduler)
+
+    assert scheduler.add_job.call_count == 1
+    call_kwargs = scheduler.add_job.call_args.kwargs
+    trigger = call_kwargs["trigger"]
+    assert isinstance(trigger, IntervalTrigger)
+    assert trigger.start_date is not None
+    assert trigger.start_date.year == 2026
+    assert trigger.start_date.month == 4
+    assert trigger.start_date.day == 7
 
 
 def test_load_recurring_reminders_skips_bad_entry(tmp_path):

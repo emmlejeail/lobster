@@ -123,6 +123,14 @@ TOOLS: list[dict] = [
                         "'interval:<N>w' (every N weeks, e.g. 'interval:2w')."
                     ),
                 },
+                "anchor_date": {
+                    "type": "string",
+                    "description": (
+                        "Optional start date in YYYY-MM-DD format. Sets when the first occurrence fires. "
+                        "Use for interval/biweekly to pin the cadence to a specific date. "
+                        "If omitted, starts as soon as possible."
+                    ),
+                },
             },
             "required": ["text", "time", "recurrence"],
         },
@@ -167,7 +175,7 @@ def _dispatch_tool(name: str, tool_input: dict[str, Any], cfg: dict) -> str:
     if name == "set_reminder":
         return set_reminder(cfg, tool_input["text"], tool_input["remind_at"])
     if name == "set_recurring_reminder":
-        return set_recurring_reminder(cfg, tool_input["text"], tool_input["time"], tool_input["recurrence"])
+        return set_recurring_reminder(cfg, tool_input["text"], tool_input["time"], tool_input["recurrence"], tool_input.get("anchor_date"))
     if name == "cancel_reminder":
         return cancel_reminder(cfg, tool_input["job_id"])
     if name == "list_reminders":

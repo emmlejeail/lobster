@@ -32,7 +32,7 @@ def _save_jobs(brain_path: str, jobs: list[dict]) -> None:
 
 # ── Trigger builder ────────────────────────────────────────────────────────────
 
-def _build_trigger(time: str, recurrence: str):
+def _build_trigger(time: str, recurrence: str, anchor_date: datetime | None = None):
     """Return an APScheduler trigger for the given time (HH:MM) and recurrence."""
     from apscheduler.triggers.cron import CronTrigger
     from apscheduler.triggers.interval import IntervalTrigger
@@ -40,34 +40,37 @@ def _build_trigger(time: str, recurrence: str):
     h, m = map(int, time.split(":"))
 
     if recurrence == "daily":
-        return CronTrigger(hour=h, minute=m)
+        return CronTrigger(hour=h, minute=m, start_date=anchor_date)
 
     if recurrence == "weekdays":
-        return CronTrigger(day_of_week="mon-fri", hour=h, minute=m)
+        return CronTrigger(day_of_week="mon-fri", hour=h, minute=m, start_date=anchor_date)
 
     if recurrence.startswith("weekly:"):
         day = recurrence.split(":", 1)[1].lower()
         abbrev = DAY_ABBREVS.get(day, day[:3])
-        return CronTrigger(day_of_week=abbrev, hour=h, minute=m)
+        return CronTrigger(day_of_week=abbrev, hour=h, minute=m, start_date=anchor_date)
 
     if recurrence.startswith("biweekly:"):
         day = recurrence.split(":", 1)[1].lower()
         abbrev = DAY_ABBREVS.get(day, day[:3])
-        # Find next occurrence of that weekday at the given time
-        now = datetime.now()
-        target_dow = list(DAY_ABBREVS.keys()).index(day) if day in DAY_ABBREVS else int(day)
-        days_ahead = (target_dow - now.weekday()) % 7
-        start = now.replace(hour=h, minute=m, second=0, microsecond=0) + timedelta(days=days_ahead)
-        if start <= now:
-            start += timedelta(weeks=2)
+        if anchor_date is not None:
+            start = anchor_date.replace(hour=h, minute=m, second=0, microsecond=0)
+        else:
+            # Find next occurrence of that weekday at the given time
+            now = datetime.now()
+            target_dow = list(DAY_ABBREVS.keys()).index(day) if day in DAY_ABBREVS else int(day)
+            days_ahead = (target_dow - now.weekday()) % 7
+            start = now.replace(hour=h, minute=m, second=0, microsecond=0) + timedelta(days=days_ahead)
+            if start <= now:
+                start += timedelta(weeks=2)
         return IntervalTrigger(weeks=2, start_date=start)
 
     if recurrence.startswith("interval:"):
         spec = recurrence.split(":", 1)[1].lower()
         if spec.endswith("w"):
-            return IntervalTrigger(weeks=int(spec[:-1]))
+            return IntervalTrigger(weeks=int(spec[:-1]), start_date=anchor_date)
         if spec.endswith("d"):
-            return IntervalTrigger(days=int(spec[:-1]))
+            return IntervalTrigger(days=int(spec[:-1]), start_date=anchor_date)
 
     raise ValueError(f"Unknown recurrence pattern: '{recurrence}'")
 
@@ -108,7 +111,7 @@ def set_reminder(cfg: dict, text: str, remind_at: str) -> str:
 
 # ── Recurring reminders ────────────────────────────────────────────────────────
 
-def set_recurring_reminder(cfg: dict, text: str, time: str, recurrence: str) -> str:
+def set_recurring_reminder(cfg: dict, text: str, time: str, recurrence: str, anchor_date: str | None = None) -> str:
     """Validate, build trigger, add job to scheduler, persist to JSON."""
     # Validate time format
     try:
@@ -121,9 +124,18 @@ def set_recurring_reminder(cfg: dict, text: str, time: str, recurrence: str) -> 
     except ValueError:
         return f"Invalid time format: '{time}'. Use HH:MM (e.g. '09:30')."
 
+    # Parse anchor_date if provided
+    anchor_dt: datetime | None = None
+    if anchor_date is not None:
+        try:
+            parsed = datetime.strptime(anchor_date, "%Y-%m-%d")
+            anchor_dt = datetime(parsed.year, parsed.month, parsed.day, h, m)
+        except ValueError:
+            return f"Invalid anchor_date format: '{anchor_date}'. Use YYYY-MM-DD (e.g. '2026-04-01')."
+
     # Validate recurrence
     try:
-        trigger = _build_trigger(time, recurrence)
+        trigger = _build_trigger(time, recurrence, anchor_date=anchor_dt)
     except ValueError as e:
         return str(e)
 
@@ -132,7 +144,7 @@ def set_recurring_reminder(cfg: dict, text: str, time: str, recurrence: str) -> 
     chat_id = cfg["telegram_chat_id"]
     brain_path = cfg["brain_path"]
 
-    job_id = f"recurring_{abs(hash(text + time + recurrence))}"
+    job_id = f"recurring_{abs(hash(text + time + recurrence + (anchor_date or '')))}"
 
     async def _send():
         await bot.send_message(chat_id=chat_id, text=f"⏰ {text}")
@@ -148,7 +160,7 @@ def set_recurring_reminder(cfg: dict, text: str, time: str, recurrence: str) -> 
 
     jobs = _load_jobs(brain_path)
     jobs = [j for j in jobs if j["job_id"] != job_id]  # deduplicate
-    jobs.append({"job_id": job_id, "text": text, "time": time, "recurrence": recurrence})
+    jobs.append({"job_id": job_id, "text": text, "time": time, "recurrence": recurrence, "anchor_date": anchor_date})
     _save_jobs(brain_path, jobs)
 
     return f"Recurring reminder set ({recurrence} at {time}): \"{text}\" [id: {job_id}]"
@@ -185,7 +197,8 @@ def list_reminders(cfg: dict) -> str:
 
     lines = ["Recurring reminders:"]
     for j in jobs:
-        lines.append(f"• [{j['job_id']}] {j['recurrence']} at {j['time']}: \"{j['text']}\"")
+        anchor_str = f" (from {j['anchor_date']})" if j.get("anchor_date") else ""
+        lines.append(f"• [{j['job_id']}] {j['recurrence']} at {j['time']}{anchor_str}: \"{j['text']}\"")
     return "\n".join(lines)
 
 
@@ -202,7 +215,8 @@ def load_recurring_reminders(cfg: dict, scheduler) -> None:
 
     for job_def in jobs:
         try:
-            trigger = _build_trigger(job_def["time"], job_def["recurrence"])
+            anchor_dt = datetime.strptime(job_def["anchor_date"], "%Y-%m-%d") if job_def.get("anchor_date") else None
+            trigger = _build_trigger(job_def["time"], job_def["recurrence"], anchor_date=anchor_dt)
             text = job_def["text"]
 
             async def _send(t=text):
