@@ -129,7 +129,9 @@ async def _send_weekly_snippet(cfg: dict) -> None:
         return
 
     try:
-        snippet = await generate_weekly_snippet(cfg)
+        from handlers.weekly_snippet import get_weekly_context
+        worklog, _ = get_weekly_context(cfg)
+        snippet = await generate_weekly_snippet(worklog, "", cfg)
         bot = Bot(token=cfg["telegram_bot_token"])
         await bot.send_message(chat_id=chat_id, text="📋 *Weekly Snippet*", parse_mode="Markdown")
         await _send_tg(bot, chat_id, snippet)
