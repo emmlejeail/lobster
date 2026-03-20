@@ -13,6 +13,7 @@ import telegram
 from telegram import Bot
 
 from agent import run_agent
+from handlers.weekly_snippet import generate_weekly_snippet
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +121,25 @@ async def _send_evening_checkin(cfg: dict) -> None:
         logger.exception("Failed to send evening check-in")
 
 
+async def _send_weekly_snippet(cfg: dict) -> None:
+    """Generate and send the weekly Confluence snippet via Telegram."""
+    chat_id = cfg.get("telegram_chat_id")
+    if not chat_id:
+        logger.warning("Weekly snippet: telegram_chat_id not set, skipping.")
+        return
+
+    try:
+        from handlers.weekly_snippet import get_weekly_context
+        worklog, _ = get_weekly_context(cfg)
+        snippet = await generate_weekly_snippet(worklog, "", cfg)
+        bot = Bot(token=cfg["telegram_bot_token"])
+        await bot.send_message(chat_id=chat_id, text="📋 *Weekly Snippet*", parse_mode="Markdown")
+        await _send_tg(bot, chat_id, snippet)
+        logger.info("Weekly snippet sent to chat_id=%s", chat_id)
+    except Exception:
+        logger.exception("Failed to send weekly snippet")
+
+
 CATCHUP_HOURS = 4  # fire up to this many hours after scheduled time
 
 
@@ -188,6 +208,27 @@ def build_scheduler(cfg: dict) -> AsyncIOScheduler:
 
     from handlers.reminder_manager import load_recurring_reminders
     load_recurring_reminders(cfg, scheduler)
+
+    _DAY_MAP = {
+        "monday": "mon", "tuesday": "tue", "wednesday": "wed", "thursday": "thu",
+        "friday": "fri", "saturday": "sat", "sunday": "sun",
+    }
+    snippet_day = cfg.get("weekly_snippet_day")
+    if snippet_day:
+        dow = _DAY_MAP.get(snippet_day.lower(), snippet_day.lower()[:3])
+        snippet_h, snippet_m = _parse_hhmm(cfg.get("weekly_snippet_time", "17:00"))
+        scheduler.add_job(
+            _send_weekly_snippet,
+            trigger=CronTrigger(day_of_week=dow, hour=snippet_h, minute=snippet_m),
+            args=[cfg],
+            id="weekly_snippet",
+            name="Weekly Confluence Snippet",
+            replace_existing=True,
+            misfire_grace_time=3600,
+        )
+        logger.info(
+            "Weekly snippet scheduled: %s at %02d:%02d", snippet_day, snippet_h, snippet_m
+        )
 
     logger.info(
         "Scheduler configured: morning=%02d:%02d, evening=%02d:%02d (timezone=%s)",

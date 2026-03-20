@@ -14,3 +14,7 @@ evening_checkin_time: "17:30"
 # LLM model
 model: "claude-sonnet-4-6"
 max_tokens: 4096
+
+# Weekly Confluence snippet (optional — remove both keys to disable scheduled delivery)
+# weekly_snippet_day: friday   # day of week to auto-send (monday–sunday)
+# weekly_snippet_time: "17:00" # time to auto-send (24h HH:MM, local time)
