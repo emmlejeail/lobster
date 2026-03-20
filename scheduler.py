@@ -186,6 +186,9 @@ def build_scheduler(cfg: dict) -> AsyncIOScheduler:
         replace_existing=True,
     )
 
+    from handlers.reminder_manager import load_recurring_reminders
+    load_recurring_reminders(cfg, scheduler)
+
     logger.info(
         "Scheduler configured: morning=%02d:%02d, evening=%02d:%02d (timezone=%s)",
         morning_h, morning_m, evening_h, evening_m, local_tz,
