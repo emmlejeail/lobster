@@ -40,6 +40,10 @@ async def main() -> None:
     # Build scheduler
     scheduler = build_scheduler(cfg)
 
+    # Inject runtime objects so agent tools can access them
+    cfg["_scheduler"] = scheduler
+    cfg["_bot"] = tg_app.bot
+
     # Graceful shutdown
     loop = asyncio.get_running_loop()
     stop_event = asyncio.Event()

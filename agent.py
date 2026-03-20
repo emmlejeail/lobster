@@ -9,6 +9,7 @@ import anthropic
 from handlers.file_manager import append_worklog, update_memory
 from handlers.todo_manager import add_todo, complete_todo, list_todos, remove_todo
 from handlers.calendar_reader import get_calendar_events
+from handlers.reminder_manager import set_reminder
 from prompts.system_prompt import build_system_prompt
 
 logger = logging.getLogger(__name__)
@@ -90,12 +91,25 @@ TOOLS: list[dict] = [
             "required": [],
         },
     },
+    {
+        "name": "set_reminder",
+        "description": "Schedule a one-shot Telegram reminder at a specific date and time.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "The reminder message to send."},
+                "remind_at": {"type": "string", "description": "ISO 8601 datetime, e.g. '2026-03-20T15:00:00'. Use today's date from context if only a time is given."},
+            },
+            "required": ["text", "remind_at"],
+        },
+    },
 ]
 
 
 # ── Tool dispatcher ───────────────────────────────────────────────────────────
 
-def _dispatch_tool(name: str, tool_input: dict[str, Any], brain_path: str) -> str:
+def _dispatch_tool(name: str, tool_input: dict[str, Any], cfg: dict) -> str:
+    brain_path = cfg["brain_path"]
     if name == "append_worklog":
         return append_worklog(brain_path, tool_input["entry"])
     if name == "add_todo":
@@ -110,6 +124,8 @@ def _dispatch_tool(name: str, tool_input: dict[str, Any], brain_path: str) -> st
         return update_memory(brain_path, tool_input["fact"])
     if name == "get_calendar_events":
         return get_calendar_events(tool_input.get("days_ahead", 0))
+    if name == "set_reminder":
+        return set_reminder(cfg, tool_input["text"], tool_input["remind_at"])
     return f"Unknown tool: {name}"
 
 
@@ -187,7 +203,7 @@ async def run_agent(
         tool_results = []
         for tc in tool_calls:
             logger.info("Tool call: %s(%s)", tc.name, json.dumps(tc.input))
-            result = _dispatch_tool(tc.name, tc.input, brain_path)
+            result = _dispatch_tool(tc.name, tc.input, cfg)
             logger.info("Tool result: %s", result)
             tool_results.append({
                 "type": "tool_result",
