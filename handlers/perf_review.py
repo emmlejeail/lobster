@@ -4,6 +4,20 @@ from datetime import date, timedelta
 
 from agent import run_agent
 
+_WORKLOG_CHAR_LIMIT = 12_000  # keep most recent entries if worklog is very large
+
+
+def _truncate_worklog(worklog: str, limit: int = _WORKLOG_CHAR_LIMIT) -> str:
+    """Keep the most recent entries if worklog exceeds limit."""
+    if len(worklog) <= limit:
+        return worklog
+    truncated = worklog[-limit:]
+    # Don't start mid-entry — trim to the first complete date header
+    first_header = truncated.find("\n\n")
+    if first_header != -1:
+        truncated = truncated[first_header + 2:]
+    return "[earlier entries omitted]\n\n" + truncated
+
 
 def _default_period() -> tuple[date, date]:
     """Return (6 months ago, today)."""
@@ -27,6 +41,7 @@ async def ask_perf_review_questions(
     if question_num >= 2:
         return "READY"
 
+    worklog = _truncate_worklog(worklog)
     questions = [
         (
             "What are 1–2 accomplishments you're most proud of from this period "
@@ -59,6 +74,7 @@ async def generate_perf_review(
     cfg: dict,
 ) -> str:
     """Generate a structured self-performance review document."""
+    worklog = _truncate_worklog(worklog)
     prompt = (
         f"Generate a structured self-performance review for the period: {period}.\n\n"
         f"Use this exact format:\n"
