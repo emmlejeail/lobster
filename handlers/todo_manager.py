@@ -107,6 +107,14 @@ def remove_todo(brain_path: str, index: int) -> str:
     return f"Todo removed: {removed['text']}"
 
 
+def get_completed_todos(brain_path: str) -> str:
+    """Return completed todos as a formatted string."""
+    todos = [t for t in _parse(brain_path) if t["done"]]
+    if not todos:
+        return "No completed todos."
+    return "\n".join(f"- {t['text']}" for t in todos)
+
+
 def get_pending_sorted(brain_path: str) -> list[dict]:
     """Return pending todos sorted by urgency.
 
