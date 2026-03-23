@@ -21,6 +21,34 @@ from handlers.perf_review import ask_perf_review_questions, generate_perf_review
 
 logger = logging.getLogger(__name__)
 
+_TELEGRAM_MAX = 4096
+
+
+def _split_message(text: str, limit: int = _TELEGRAM_MAX) -> list[str]:
+    """Split text into chunks that fit within Telegram's message size limit.
+
+    Tries to split on section headers (### ) first, then on double newlines,
+    then hard-cuts as a last resort.
+    """
+    if len(text) <= limit:
+        return [text]
+
+    chunks: list[str] = []
+    remaining = text
+    while len(remaining) > limit:
+        # Try to split at a section header before the limit
+        cut = remaining.rfind("\n###", 1, limit)
+        if cut == -1:
+            # Fall back to last double-newline
+            cut = remaining.rfind("\n\n", 1, limit)
+        if cut == -1:
+            cut = limit
+        chunks.append(remaining[:cut].strip())
+        remaining = remaining[cut:].strip()
+    if remaining:
+        chunks.append(remaining)
+    return chunks
+
 _history: dict[int, list[dict]] = {}
 _weekly_sessions: dict[int, dict] = {}
 # {"worklog": str, "todos": str, "period": str, "answers": list[str], "question_num": int}
@@ -185,7 +213,9 @@ async def _on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                     session["worklog"], session["todos"],
                     extra_context, session["period"], cfg,
                 )
-                await update.message.reply_text(f"📄 *Performance Review*\n\n{review}", parse_mode="Markdown")
+                chunks = _split_message(f"📄 *Performance Review*\n\n{review}")
+                for chunk in chunks:
+                    await update.message.reply_text(chunk, parse_mode="Markdown")
         except Exception as exc:
             logger.exception("Perf review error during Q&A")
             _perf_review_sessions.pop(chat_id, None)
