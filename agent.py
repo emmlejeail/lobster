@@ -7,7 +7,7 @@ from typing import Any
 import anthropic
 
 from handlers.file_manager import append_worklog, update_memory
-from handlers.todo_manager import add_todo, complete_todo, list_todos, remove_todo
+from handlers.todo_manager import add_todo, complete_todo, list_todos, remove_todo, update_todo
 from handlers.calendar_reader import get_calendar_events
 from handlers.reminder_manager import set_reminder, set_recurring_reminder, cancel_reminder, list_reminders
 from prompts.system_prompt import build_system_prompt
@@ -35,8 +35,37 @@ TOOLS: list[dict] = [
             "type": "object",
             "properties": {
                 "text": {"type": "string", "description": "The todo item text."},
+                "priority": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"],
+                    "description": "Optional priority level.",
+                },
+                "due_date": {
+                    "type": "string",
+                    "description": "Optional due date in YYYY-MM-DD format.",
+                },
             },
             "required": ["text"],
+        },
+    },
+    {
+        "name": "update_todo",
+        "description": "Update the priority and/or due date of a todo by its 1-based index without changing its text.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "index": {"type": "integer", "description": "1-based index of the todo to update."},
+                "priority": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"],
+                    "description": "New priority level.",
+                },
+                "due_date": {
+                    "type": "string",
+                    "description": "New due date in YYYY-MM-DD format.",
+                },
+            },
+            "required": ["index"],
         },
     },
     {
@@ -161,7 +190,9 @@ def _dispatch_tool(name: str, tool_input: dict[str, Any], cfg: dict) -> str:
     if name == "append_worklog":
         return append_worklog(brain_path, tool_input["entry"])
     if name == "add_todo":
-        return add_todo(brain_path, tool_input["text"])
+        return add_todo(brain_path, tool_input["text"], tool_input.get("priority"), tool_input.get("due_date"))
+    if name == "update_todo":
+        return update_todo(brain_path, tool_input["index"], tool_input.get("priority"), tool_input.get("due_date"))
     if name == "complete_todo":
         return complete_todo(brain_path, tool_input["index"])
     if name == "remove_todo":
