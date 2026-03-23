@@ -81,11 +81,14 @@ async def _send_morning_briefing(cfg: dict) -> None:
         logger.warning("Morning briefing: telegram_chat_id not set, skipping.")
         return
 
+    today = datetime.date.today().isoformat()
     prompt = (
-        "Good morning! Give me a brief morning briefing in 3 short sections — "
+        f"Good morning! Today is {today}. Give me a brief morning briefing in 3 short sections — "
         "aim for 150 words total, never exceed 200:\n"
         "1. Today's calendar events (use get_calendar_events tool) — bullet list, one line each\n"
-        "2. Open todos — bullet list, one line each\n"
+        "2. Todos — use list_todos tool, then highlight: overdue items first (mark ⚠️), "
+        "then due today, then due this week. Skip future/no-deadline todos if the list is long. "
+        "One line each, include due date and priority if set.\n"
         "3. One motivating sentence to start the day\n"
         "Be concise. No intro, no outro."
     )
