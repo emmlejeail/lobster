@@ -73,3 +73,49 @@ def test_prompt_contains_worklog_header(tmp_path):
     _seed(tmp_path)
     result = build_system_prompt(str(tmp_path))
     assert "## Today's Work Log" in result
+
+
+# ── section ordering + completeness ───────────────────────────────────────────
+
+def test_section_order_all_present(tmp_path):
+    today = date.today().isoformat()
+    _seed(
+        tmp_path,
+        role="Be helpful.",
+        memory="- a fact",
+        todos="- [ ] Task\n",
+        worklog=f"\n### {today}\nDid work\n",
+    )
+    result = build_system_prompt(str(tmp_path))
+    idx_date = result.index("Today is")
+    idx_memory = result.index("## Long-term Memory")
+    idx_todos = result.index("## Current Todos")
+    idx_worklog = result.index("## Today's Work Log")
+    idx_instructions = result.index("## Instructions")
+    assert idx_date < idx_memory < idx_todos < idx_worklog < idx_instructions
+
+
+def test_instructions_always_present(tmp_path):
+    _seed(tmp_path)  # empty brain
+    result = build_system_prompt(str(tmp_path))
+    assert "## Instructions" in result
+
+
+def test_full_prompt_no_duplicate_headers(tmp_path):
+    today = date.today().isoformat()
+    _seed(
+        tmp_path,
+        role="Role text",
+        memory="- fact",
+        todos="- [ ] Task\n",
+        worklog=f"\n### {today}\nEntry\n",
+    )
+    result = build_system_prompt(str(tmp_path))
+    headers = [line for line in result.splitlines() if line.startswith("## ")]
+    assert len(headers) == len(set(headers))
+
+
+def test_worklog_no_entry_fallback(tmp_path):
+    _seed(tmp_path)  # empty worklog
+    result = build_system_prompt(str(tmp_path))
+    assert "No work log entries" in result
