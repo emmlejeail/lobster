@@ -4,6 +4,7 @@ from datetime import date
 from handlers.file_manager import (
     append_file,
     append_worklog,
+    get_date_range_worklog,
     get_today_worklog,
     read_file,
     update_memory,
@@ -103,3 +104,65 @@ def test_update_memory_contains_today_and_fact(tmp_path):
 def test_update_memory_returns_confirmation(tmp_path):
     msg = update_memory(str(tmp_path), "any fact")
     assert msg == "Memory updated."
+
+
+# ── get_date_range_worklog ─────────────────────────────────────────────────────
+
+def test_date_range_empty_file(tmp_path):
+    start = date(2026, 3, 1)
+    end = date(2026, 3, 31)
+    result = get_date_range_worklog(str(tmp_path), start, end)
+    assert "No worklog entries for" in result
+
+
+def test_date_range_single_matching_date(tmp_path):
+    (tmp_path / "worklog.md").write_text(
+        "\n### 2026-03-10\nFixed the bug\n", encoding="utf-8"
+    )
+    result = get_date_range_worklog(str(tmp_path), date(2026, 3, 10), date(2026, 3, 10))
+    assert "Fixed the bug" in result
+
+
+def test_date_range_filters_out_of_range(tmp_path):
+    (tmp_path / "worklog.md").write_text(
+        "\n### 2026-03-09\nBefore range\n"
+        "\n### 2026-03-10\nIn range\n"
+        "\n### 2026-03-11\nAfter range\n",
+        encoding="utf-8",
+    )
+    result = get_date_range_worklog(str(tmp_path), date(2026, 3, 10), date(2026, 3, 10))
+    assert "In range" in result
+    assert "Before range" not in result
+    assert "After range" not in result
+
+
+def test_date_range_inclusive_boundaries(tmp_path):
+    (tmp_path / "worklog.md").write_text(
+        "\n### 2026-03-01\nStart day\n"
+        "\n### 2026-03-15\nMiddle day\n"
+        "\n### 2026-03-31\nEnd day\n",
+        encoding="utf-8",
+    )
+    result = get_date_range_worklog(str(tmp_path), date(2026, 3, 1), date(2026, 3, 31))
+    assert "Start day" in result
+    assert "Middle day" in result
+    assert "End day" in result
+
+
+def test_date_range_no_matching_dates(tmp_path):
+    (tmp_path / "worklog.md").write_text(
+        "\n### 2026-01-01\nOld entry\n", encoding="utf-8"
+    )
+    result = get_date_range_worklog(str(tmp_path), date(2026, 3, 1), date(2026, 3, 31))
+    assert "No worklog entries for" in result
+
+
+def test_date_range_malformed_header_ignored(tmp_path):
+    (tmp_path / "worklog.md").write_text(
+        "\n### not-a-date\nBad header\n"
+        "\n### 2026-03-10\nValid entry\n",
+        encoding="utf-8",
+    )
+    # Should not crash, and should still return the valid entry
+    result = get_date_range_worklog(str(tmp_path), date(2026, 3, 10), date(2026, 3, 10))
+    assert "Valid entry" in result

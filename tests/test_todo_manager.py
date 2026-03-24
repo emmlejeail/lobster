@@ -5,6 +5,7 @@ from handlers.todo_manager import (
     _render,
     add_todo,
     complete_todo,
+    get_completed_todos,
     get_pending_sorted,
     list_todos,
     remove_todo,
@@ -260,3 +261,32 @@ def test_get_pending_sorted_no_due_by_priority(tmp_path):
     assert sorted_todos[0]["text"] == "High task"
     assert sorted_todos[1]["text"] == "Low task"
     assert sorted_todos[2]["text"] == "No priority"
+
+
+# ── get_completed_todos ────────────────────────────────────────────────────────
+
+def test_get_completed_empty_file(tmp_path):
+    assert get_completed_todos(str(tmp_path)) == "No completed todos."
+
+
+def test_get_completed_no_done_items(tmp_path):
+    (tmp_path / "todos.md").write_text("- [ ] Pending task\n")
+    assert get_completed_todos(str(tmp_path)) == "No completed todos."
+
+
+def test_get_completed_returns_done_items(tmp_path):
+    (tmp_path / "todos.md").write_text(
+        "- [x] Done lowercase\n"
+        "- [X] Done uppercase\n"
+        "- [ ] Still pending\n"
+    )
+    result = get_completed_todos(str(tmp_path))
+    assert "Done lowercase" in result
+    assert "Done uppercase" in result
+    assert "Still pending" not in result
+
+
+def test_get_completed_format(tmp_path):
+    (tmp_path / "todos.md").write_text("- [x] Review PR\n")
+    result = get_completed_todos(str(tmp_path))
+    assert result == "- Review PR"
