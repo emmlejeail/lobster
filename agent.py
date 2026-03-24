@@ -1,5 +1,6 @@
 """Core LLM agent: builds context, calls Anthropic API with tool use."""
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -247,7 +248,8 @@ async def run_agent(
     # Agentic loop: keep going until the model stops using tools
     while True:
         logger.debug("Calling Anthropic API (model=%s, messages=%d)", model, len(messages))
-        response = client.messages.create(
+        response = await asyncio.to_thread(
+            client.messages.create,
             model=model,
             max_tokens=max_tokens,
             system=system_prompt,

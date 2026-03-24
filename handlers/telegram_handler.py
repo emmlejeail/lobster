@@ -13,15 +13,46 @@ from telegram.ext import (
 
 from agent import run_agent
 from config import save_chat_id
-from handlers.todo_manager import list_todos
-from handlers.file_manager import get_today_worklog
+from handlers.todo_manager import list_todos, get_completed_todos
+from handlers.file_manager import get_today_worklog, get_date_range_worklog
 from handlers.onboarding import get_onboarding_handler
 from handlers.weekly_snippet import ask_weekly_questions, generate_weekly_snippet, get_weekly_context
+from handlers.perf_review import ask_perf_review_questions, generate_perf_review, _default_period
 
 logger = logging.getLogger(__name__)
 
+_TELEGRAM_MAX = 4096
+
+
+def _split_message(text: str, limit: int = _TELEGRAM_MAX) -> list[str]:
+    """Split text into chunks that fit within Telegram's message size limit.
+
+    Tries to split on section headers (### ) first, then on double newlines,
+    then hard-cuts as a last resort.
+    """
+    if len(text) <= limit:
+        return [text]
+
+    chunks: list[str] = []
+    remaining = text
+    while len(remaining) > limit:
+        # Try to split at a section header before the limit
+        cut = remaining.rfind("\n###", 1, limit)
+        if cut == -1:
+            # Fall back to last double-newline
+            cut = remaining.rfind("\n\n", 1, limit)
+        if cut == -1:
+            cut = limit
+        chunks.append(remaining[:cut].strip())
+        remaining = remaining[cut:].strip()
+    if remaining:
+        chunks.append(remaining)
+    return chunks
+
 _history: dict[int, list[dict]] = {}
 _weekly_sessions: dict[int, dict] = {}
+# {"worklog": str, "todos": str, "period": str, "answers": list[str], "question_num": int}
+_perf_review_sessions: dict[int, dict] = {}
 
 
 def build_application(cfg: dict) -> Application:
@@ -34,6 +65,7 @@ def build_application(cfg: dict) -> Application:
     app.add_handler(CommandHandler("todos", _cmd_todos))
     app.add_handler(CommandHandler("log", _cmd_log))
     app.add_handler(CommandHandler("weekly", _cmd_weekly))
+    app.add_handler(CommandHandler("perfreview", _cmd_perfreview))
     app.add_handler(CommandHandler("help", _cmd_help))
     app.add_handler(CommandHandler("clear", _cmd_clear))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _on_message))
@@ -65,11 +97,12 @@ async def _cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "• \"What's on my calendar today?\"\n"
         "• \"Remember that I prefer dark mode\"\n\n"
         "Commands:\n"
-        "  /todos   — list todos\n"
-        "  /log     — today's work log\n"
-        "  /weekly  — generate weekly Confluence snippet\n"
-        "  /clear   — clear conversation history\n"
-        "  /help    — this message",
+        "  /todos        — list todos\n"
+        "  /log          — today's work log\n"
+        "  /weekly       — generate weekly Confluence snippet\n"
+        "  /perfreview   — generate self-performance review (last 6 months)\n"
+        "  /clear        — clear conversation history\n"
+        "  /help         — this message",
         parse_mode="Markdown",
     )
 
@@ -90,6 +123,36 @@ async def _cmd_weekly(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     except Exception as exc:
         logger.exception("Weekly snippet error")
         await update.message.reply_text(f"Sorry, could not generate snippet: {exc}")
+
+
+async def _cmd_perfreview(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    cfg = context.bot_data["cfg"]
+    chat_id = update.effective_chat.id
+    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+
+    # Optional period arg (e.g. "/perfreview Q1 2026")
+    period_arg = " ".join(context.args) if context.args else ""
+
+    try:
+        start, end = _default_period()
+        period = period_arg if period_arg else f"{start.strftime('%b %Y')}–{end.strftime('%b %Y')}"
+
+        worklog = get_date_range_worklog(cfg["brain_path"], start, end)
+        todos = get_completed_todos(cfg["brain_path"])
+
+        question = await ask_perf_review_questions(worklog, todos, 0, "", cfg)
+
+        _perf_review_sessions[chat_id] = {
+            "worklog": worklog,
+            "todos": todos,
+            "period": period,
+            "answers": [],
+            "question_num": 1,
+        }
+        await update.message.reply_text(question)
+    except Exception as exc:
+        logger.exception("Perf review error")
+        await update.message.reply_text(f"Sorry, could not start perf review: {exc}")
 
 
 async def _cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -128,6 +191,35 @@ async def _on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         except Exception as exc:
             logger.exception("Weekly snippet error after Q&A")
             await update.message.reply_text(f"Sorry, could not generate snippet: {exc}")
+        return
+
+    if chat_id in _perf_review_sessions:
+        session = _perf_review_sessions[chat_id]
+        session["answers"].append(user_text)
+        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+        try:
+            if session["question_num"] < 2:
+                previous = "\n".join(session["answers"])
+                question = await ask_perf_review_questions(
+                    session["worklog"], session["todos"],
+                    session["question_num"], previous, cfg,
+                )
+                session["question_num"] += 1
+                await update.message.reply_text(question)
+            else:
+                _perf_review_sessions.pop(chat_id)
+                extra_context = "\n".join(session["answers"])
+                review = await generate_perf_review(
+                    session["worklog"], session["todos"],
+                    extra_context, session["period"], cfg,
+                )
+                chunks = _split_message(f"📄 *Performance Review*\n\n{review}")
+                for chunk in chunks:
+                    await update.message.reply_text(chunk, parse_mode="Markdown")
+        except Exception as exc:
+            logger.exception("Perf review error during Q&A")
+            _perf_review_sessions.pop(chat_id, None)
+            await update.message.reply_text(f"Sorry, could not generate perf review: {exc}")
         return
 
     history = _history.get(chat_id, [])

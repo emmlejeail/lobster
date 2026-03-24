@@ -65,11 +65,14 @@ def get_week_worklog(brain_path: str) -> str:
     """Return worklog entries from Monday of the current week through today."""
     today = date.today()
     monday = today - timedelta(days=today.weekday())  # Monday of current week
+    return get_date_range_worklog(brain_path, monday, today)
 
+
+def get_date_range_worklog(brain_path: str, start_date: date, end_date: date) -> str:
+    """Return worklog entries whose date falls within [start_date, end_date]."""
     content = read_file(brain_path, "worklog.md")
     lines = content.splitlines()
 
-    # Collect sections keyed by date
     sections: dict[date, list[str]] = {}
     current_date: date | None = None
 
@@ -78,14 +81,14 @@ def get_week_worklog(brain_path: str) -> str:
         m = date_re.match(line)
         if m:
             d = date.fromisoformat(m.group(1))
-            current_date = d if monday <= d <= today else None
+            current_date = d if start_date <= d <= end_date else None
             if current_date is not None:
                 sections.setdefault(current_date, [])
         elif current_date is not None:
             sections[current_date].append(line)
 
     if not sections:
-        return f"No worklog entries for the week of {monday.isoformat()} – {today.isoformat()}."
+        return f"No worklog entries for {start_date.isoformat()} – {end_date.isoformat()}."
 
     parts = []
     for d in sorted(sections):
@@ -93,7 +96,7 @@ def get_week_worklog(brain_path: str) -> str:
         if entries:
             parts.append(f"{d.isoformat()}:\n{entries}")
 
-    return "\n\n".join(parts) if parts else f"No worklog entries for the week of {monday.isoformat()} – {today.isoformat()}."
+    return "\n\n".join(parts) if parts else f"No worklog entries for {start_date.isoformat()} – {end_date.isoformat()}."
 
 
 # ── Memory ───────────────────────────────────────────────────────────────────
