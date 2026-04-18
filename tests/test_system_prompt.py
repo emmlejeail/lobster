@@ -5,11 +5,13 @@ import pytest
 from prompts.system_prompt import build_system_prompt
 
 
-def _seed(tmp_path, role="", memory="", todos="", worklog=""):
+def _seed(tmp_path, role="", memory="", todos="", worklog="", level=""):
     (tmp_path / "role.md").write_text(role, encoding="utf-8")
     (tmp_path / "memory.md").write_text(memory, encoding="utf-8")
     (tmp_path / "todos.md").write_text(todos, encoding="utf-8")
     (tmp_path / "worklog.md").write_text(worklog, encoding="utf-8")
+    if level:
+        (tmp_path / "level_expectations.md").write_text(level, encoding="utf-8")
 
 
 # ── date ───────────────────────────────────────────────────────────────────────
@@ -50,6 +52,41 @@ def test_prompt_empty_memory_header_absent(tmp_path):
     _seed(tmp_path, role="Role text", memory="")
     result = build_system_prompt(str(tmp_path))
     assert "## Long-term Memory" not in result
+
+
+# ── level expectations section ────────────────────────────────────────────────
+
+def test_prompt_contains_level_expectations_when_seeded(tmp_path):
+    _seed(tmp_path, level="Staff engineer: leads cross-team efforts.")
+    result = build_system_prompt(str(tmp_path))
+    assert "## Level Expectations" in result
+    assert "Staff engineer: leads cross-team efforts." in result
+
+
+def test_prompt_level_expectations_absent_when_missing(tmp_path):
+    _seed(tmp_path)  # no level_expectations.md file
+    result = build_system_prompt(str(tmp_path))
+    assert "## Level Expectations" not in result
+
+
+def test_prompt_level_expectations_absent_when_empty_file(tmp_path):
+    _seed(tmp_path, level="   \n  \n")
+    result = build_system_prompt(str(tmp_path))
+    assert "## Level Expectations" not in result
+
+
+def test_level_expectations_positioned_between_memory_and_todos(tmp_path):
+    _seed(
+        tmp_path,
+        memory="- fact",
+        level="Staff engineer criteria",
+        todos="- [ ] Task\n",
+    )
+    result = build_system_prompt(str(tmp_path))
+    idx_memory = result.index("## Long-term Memory")
+    idx_level = result.index("## Level Expectations")
+    idx_todos = result.index("## Current Todos")
+    assert idx_memory < idx_level < idx_todos
 
 
 # ── todos section ──────────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
-"""Tests for _truncate_worklog in handlers/perf_review.py"""
-from handlers.perf_review import _truncate_worklog
+"""Tests for pure helpers in handlers/perf_review.py"""
+from handlers.perf_review import _build_review_prompt, _truncate_worklog
 
 _MARKER = "[earlier entries omitted]"
 
@@ -54,3 +54,46 @@ def test_custom_limit():
     assert result.startswith(_MARKER)
     # Result length <= limit + marker overhead
     assert len(result) <= 20 + len(_MARKER) + 2
+
+
+# ── _build_review_prompt ──────────────────────────────────────────────────────
+
+def test_build_review_prompt_contains_period_and_worklog():
+    prompt = _build_review_prompt(
+        worklog="### 2026-03-01\nShipped feature X",
+        todos="- [x] Task 1",
+        extra_context="Proud of X",
+        period="Jan 2026–Mar 2026",
+        level_expectations="",
+    )
+    assert "Jan 2026–Mar 2026" in prompt
+    assert "Shipped feature X" in prompt
+    assert "Task 1" in prompt
+    assert "Proud of X" in prompt
+
+
+def test_build_review_prompt_omits_level_block_when_empty():
+    prompt = _build_review_prompt(
+        worklog="wl", todos="t", extra_context="x", period="p", level_expectations="",
+    )
+    assert "Level expectations" not in prompt
+
+
+def test_build_review_prompt_includes_level_block_when_present():
+    prompt = _build_review_prompt(
+        worklog="wl", todos="t", extra_context="x", period="p",
+        level_expectations="Staff engineer: leads cross-team initiatives.",
+    )
+    assert "Level expectations you're being evaluated against:" in prompt
+    assert "Staff engineer: leads cross-team initiatives." in prompt
+    # The extra instruction line should also appear when level is present
+    assert "level expectation" in prompt
+
+
+def test_build_review_prompt_strips_level_whitespace():
+    prompt = _build_review_prompt(
+        worklog="wl", todos="t", extra_context="x", period="p",
+        level_expectations="   \n  \n",
+    )
+    # Whitespace-only expectations are treated as empty
+    assert "Level expectations" not in prompt
