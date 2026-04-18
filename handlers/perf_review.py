@@ -26,12 +26,83 @@ def _default_period() -> tuple[date, date]:
     return today - timedelta(days=183), today
 
 
+def _build_question_prompt(
+    worklog: str,
+    todos: str,
+    question: str,
+    previous_answers: str,
+    level_expectations: str,
+) -> str:
+    worklog = _truncate_worklog(worklog)
+    parts = [
+        "You're helping a software engineer write their self-performance review. "
+        "Ask the following question in a warm, concise way. "
+        "Do NOT generate the review yet — just ask the question.",
+        "",
+        f"Worklog summary:\n{worklog}",
+        "",
+        f"Completed todos:\n{todos}",
+        "",
+        f"Previous answers so far:\n{previous_answers or 'None'}",
+        "",
+    ]
+    if level_expectations.strip():
+        parts += [f"Level expectations you're being evaluated against:\n{level_expectations.strip()}", ""]
+    parts.append(f"Question to ask: {question}")
+    return "\n".join(parts)
+
+
+def _build_review_prompt(
+    worklog: str,
+    todos: str,
+    extra_context: str,
+    period: str,
+    level_expectations: str,
+) -> str:
+    worklog = _truncate_worklog(worklog)
+    parts = [
+        f"Generate a structured self-performance review for the period: {period}.",
+        "",
+        "Use this exact format:",
+        f"## Self Performance Review — {period}",
+        "",
+        "### Summary",
+        "[2–3 sentence overview of the period]",
+        "",
+        "### Key Accomplishments",
+        "[Bullet points with concrete details pulled from worklog and context]",
+        "",
+        "### Challenges & Growth",
+        "[Honest reflection, framed positively]",
+        "",
+        "### Collaboration & Impact",
+        "[Cross-team work, mentorship, code reviews, etc.]",
+        "",
+        "### Goals for Next Period",
+        "[Forward-looking, based on current context]",
+        "",
+        "Write in first person. Be specific and concrete. "
+        "Use worklog entries as evidence for accomplishments.",
+    ]
+    if level_expectations.strip():
+        parts += [
+            "For each key accomplishment, note which level expectation(s) it demonstrates. "
+            "In Goals for Next Period, flag expectations that aren't yet well-evidenced.",
+        ]
+    parts += ["", f"Worklog:\n{worklog}", "", f"Completed todos:\n{todos}", ""]
+    if level_expectations.strip():
+        parts += [f"Level expectations you're being evaluated against:\n{level_expectations.strip()}", ""]
+    parts.append(f"Additional context from Q&A:\n{extra_context}")
+    return "\n".join(parts)
+
+
 async def ask_perf_review_questions(
     worklog: str,
     todos: str,
     question_num: int,
     previous_answers: str,
     cfg: dict,
+    level_expectations: str = "",
 ) -> str:
     """Ask the next targeted question for the perf review Q&A.
 
@@ -41,7 +112,6 @@ async def ask_perf_review_questions(
     if question_num >= 2:
         return "READY"
 
-    worklog = _truncate_worklog(worklog)
     questions = [
         (
             "What are 1–2 accomplishments you're most proud of from this period "
@@ -53,14 +123,8 @@ async def ask_perf_review_questions(
         ),
     ]
 
-    prompt = (
-        "You're helping a software engineer write their self-performance review. "
-        "Ask the following question in a warm, concise way. "
-        "Do NOT generate the review yet — just ask the question.\n\n"
-        f"Worklog summary:\n{worklog}\n\n"
-        f"Completed todos:\n{todos}\n\n"
-        f"Previous answers so far:\n{previous_answers or 'None'}\n\n"
-        f"Question to ask: {questions[question_num]}"
+    prompt = _build_question_prompt(
+        worklog, todos, questions[question_num], previous_answers, level_expectations,
     )
     reply, _ = await run_agent(prompt, cfg)
     return reply
@@ -72,28 +136,9 @@ async def generate_perf_review(
     extra_context: str,
     period: str,
     cfg: dict,
+    level_expectations: str = "",
 ) -> str:
     """Generate a structured self-performance review document."""
-    worklog = _truncate_worklog(worklog)
-    prompt = (
-        f"Generate a structured self-performance review for the period: {period}.\n\n"
-        f"Use this exact format:\n"
-        f"## Self Performance Review — {period}\n\n"
-        f"### Summary\n"
-        f"[2–3 sentence overview of the period]\n\n"
-        f"### Key Accomplishments\n"
-        f"[Bullet points with concrete details pulled from worklog and context]\n\n"
-        f"### Challenges & Growth\n"
-        f"[Honest reflection, framed positively]\n\n"
-        f"### Collaboration & Impact\n"
-        f"[Cross-team work, mentorship, code reviews, etc.]\n\n"
-        f"### Goals for Next Period\n"
-        f"[Forward-looking, based on current context]\n\n"
-        f"Write in first person. Be specific and concrete. "
-        f"Use worklog entries as evidence for accomplishments.\n\n"
-        f"Worklog:\n{worklog}\n\n"
-        f"Completed todos:\n{todos}\n\n"
-        f"Additional context from Q&A:\n{extra_context}"
-    )
+    prompt = _build_review_prompt(worklog, todos, extra_context, period, level_expectations)
     reply, _ = await run_agent(prompt, cfg)
     return reply

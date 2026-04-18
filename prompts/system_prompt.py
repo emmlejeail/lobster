@@ -10,6 +10,7 @@ def build_system_prompt(brain_path: str) -> str:
 
     role = read_file(brain_path, "role.md").strip()
     memory = read_file(brain_path, "memory.md").strip()
+    level_expectations = read_file(brain_path, "level_expectations.md").strip()
     todos = list_todos(brain_path)
     worklog = get_today_worklog(brain_path)
 
@@ -23,6 +24,9 @@ def build_system_prompt(brain_path: str) -> str:
 
     if memory:
         parts += ["## Long-term Memory", memory, ""]
+
+    if level_expectations:
+        parts += ["## Level Expectations", level_expectations, ""]
 
     parts += [
         "## Current Todos",

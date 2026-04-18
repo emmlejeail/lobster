@@ -14,7 +14,7 @@ from telegram.ext import (
 from agent import run_agent
 from config import save_chat_id
 from handlers.todo_manager import list_todos, get_completed_todos
-from handlers.file_manager import get_today_worklog, get_date_range_worklog
+from handlers.file_manager import get_today_worklog, get_date_range_worklog, read_file, write_file
 from handlers.onboarding import get_onboarding_handler
 from handlers.weekly_snippet import ask_weekly_questions, generate_weekly_snippet, get_weekly_context
 from handlers.perf_review import ask_perf_review_questions, generate_perf_review, _default_period
@@ -51,8 +51,9 @@ def _split_message(text: str, limit: int = _TELEGRAM_MAX) -> list[str]:
 
 _history: dict[int, list[dict]] = {}
 _weekly_sessions: dict[int, dict] = {}
-# {"worklog": str, "todos": str, "period": str, "answers": list[str], "question_num": int}
+# {"worklog": str, "todos": str, "level_expectations": str, "period": str, "answers": list[str], "question_num": int}
 _perf_review_sessions: dict[int, dict] = {}
+_setlevel_sessions: dict[int, bool] = {}
 
 
 def build_application(cfg: dict) -> Application:
@@ -66,6 +67,7 @@ def build_application(cfg: dict) -> Application:
     app.add_handler(CommandHandler("log", _cmd_log))
     app.add_handler(CommandHandler("weekly", _cmd_weekly))
     app.add_handler(CommandHandler("perfreview", _cmd_perfreview))
+    app.add_handler(CommandHandler("setlevel", _cmd_setlevel))
     app.add_handler(CommandHandler("help", _cmd_help))
     app.add_handler(CommandHandler("clear", _cmd_clear))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _on_message))
@@ -101,6 +103,7 @@ async def _cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "  /log          — today's work log\n"
         "  /weekly       — generate weekly Confluence snippet\n"
         "  /perfreview   — generate self-performance review (last 6 months)\n"
+        "  /setlevel     — set current-level job expectations\n"
         "  /clear        — clear conversation history\n"
         "  /help         — this message",
         parse_mode="Markdown",
@@ -139,12 +142,16 @@ async def _cmd_perfreview(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         worklog = get_date_range_worklog(cfg["brain_path"], start, end)
         todos = get_completed_todos(cfg["brain_path"])
+        level_expectations = read_file(cfg["brain_path"], "level_expectations.md")
 
-        question = await ask_perf_review_questions(worklog, todos, 0, "", cfg)
+        question = await ask_perf_review_questions(
+            worklog, todos, 0, "", cfg, level_expectations=level_expectations,
+        )
 
         _perf_review_sessions[chat_id] = {
             "worklog": worklog,
             "todos": todos,
+            "level_expectations": level_expectations,
             "period": period,
             "answers": [],
             "question_num": 1,
@@ -153,6 +160,28 @@ async def _cmd_perfreview(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     except Exception as exc:
         logger.exception("Perf review error")
         await update.message.reply_text(f"Sorry, could not start perf review: {exc}")
+
+
+async def _cmd_setlevel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    cfg = context.bot_data["cfg"]
+    chat_id = update.effective_chat.id
+
+    # Preserve newlines: split on first whitespace run, keep the tail verbatim.
+    parts = (update.message.text or "").split(None, 1)
+    inline = parts[1].strip() if len(parts) > 1 else ""
+
+    if inline:
+        write_file(cfg["brain_path"], "level_expectations.md", inline)
+        await update.message.reply_text(
+            f"Saved level expectations ({len(inline)} chars)."
+        )
+        return
+
+    _setlevel_sessions[chat_id] = True
+    await update.message.reply_text(
+        "Paste your current-level job expectations in your next message "
+        "(title + criteria). I'll overwrite any previous entry."
+    )
 
 
 async def _cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -182,6 +211,17 @@ async def _on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     chat_id = update.effective_chat.id
 
+    if _setlevel_sessions.pop(chat_id, None):
+        content = user_text.strip()
+        if not content:
+            await update.message.reply_text("Empty — level expectations not saved.")
+            return
+        write_file(cfg["brain_path"], "level_expectations.md", content)
+        await update.message.reply_text(
+            f"Saved level expectations ({len(content)} chars)."
+        )
+        return
+
     if chat_id in _weekly_sessions:
         session = _weekly_sessions.pop(chat_id)
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
@@ -203,6 +243,7 @@ async def _on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 question = await ask_perf_review_questions(
                     session["worklog"], session["todos"],
                     session["question_num"], previous, cfg,
+                    level_expectations=session.get("level_expectations", ""),
                 )
                 session["question_num"] += 1
                 await update.message.reply_text(question)
@@ -212,6 +253,7 @@ async def _on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 review = await generate_perf_review(
                     session["worklog"], session["todos"],
                     extra_context, session["period"], cfg,
+                    level_expectations=session.get("level_expectations", ""),
                 )
                 chunks = _split_message(f"📄 *Performance Review*\n\n{review}")
                 for chunk in chunks:
