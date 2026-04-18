@@ -150,6 +150,8 @@ async def _check_missed_jobs(cfg: dict) -> None:
     """Run at startup and every 5 min; fires any job missed today within its catch-up window."""
     local_tz = _get_local_timezone(cfg)
     now = datetime.datetime.now(local_tz)
+    if now.weekday() >= 5:  # Saturday=5, Sunday=6 — briefing/check-in are weekday-only
+        return
     today = now.date().isoformat()
     state = _load_state(cfg)
 
@@ -180,7 +182,7 @@ def build_scheduler(cfg: dict) -> AsyncIOScheduler:
 
     scheduler.add_job(
         _send_morning_briefing,
-        trigger=CronTrigger(hour=morning_h, minute=morning_m),
+        trigger=CronTrigger(day_of_week="mon-fri", hour=morning_h, minute=morning_m),
         args=[cfg],
         id="morning_briefing",
         name="Morning Briefing",
@@ -190,7 +192,7 @@ def build_scheduler(cfg: dict) -> AsyncIOScheduler:
 
     scheduler.add_job(
         _send_evening_checkin,
-        trigger=CronTrigger(hour=evening_h, minute=evening_m),
+        trigger=CronTrigger(day_of_week="mon-fri", hour=evening_h, minute=evening_m),
         args=[cfg],
         id="evening_checkin",
         name="Evening Check-in",
